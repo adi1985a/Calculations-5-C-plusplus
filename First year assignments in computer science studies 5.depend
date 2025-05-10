@@ -1,0 +1,8 @@
+# depslib dependency file v1.0
+1678226934 source:c:\users\hp\desktop\programy na github\c++\programs\study assignment (6)\zadania 4\main.cpp
+	<iostream>
+	<string>
+	<math.h>
+	<cstdlib>
+	<ctime>
+

@@ -1,0 +1,2 @@
+Trapezoid area calculation: 6
+Trapezoid area calculation: 7
