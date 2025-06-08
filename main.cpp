@@ -1,283 +1,317 @@
 #include <iostream>
-#include <string>
-#include <math.h>
-#include <cstdlib>
-#include <ctime>
 #include <fstream>
-#include <windows.h>
+#include <sstream>
+#include <string>
+#include <vector>
 #include <iomanip>
-#include <conio.h>
+#include <ctime>
+#include <stdexcept>
+#include <limits>
+#ifdef _WIN32
+  #include <windows.h>
+  #include <conio.h>
+#else
+  #include <unistd.h>
+  #include <termios.h>
+#endif
 
-using namespace std;
+// -----------------------------
+// Cross-platform helpers
+// -----------------------------
+void clearScreen() {
+#ifdef _WIN32
+    system("cls");
+#else
+    system("clear");
+#endif
+}
+void waitKey() {
+#ifdef _WIN32
+    _getch();
+#else
+    struct termios oldt, newt;
+    tcgetattr(0, &oldt);
+    newt = oldt; newt.c_lflag &= ~ICANON;
+    tcsetattr(0, TCSANOW, &newt);
+    getchar();
+    tcsetattr(0, TCSANOW, &oldt);
+#endif
+}
 
-// Function prototypes
-void setConsoleColor(int);
-void printHeader();
-void logError(const string&);
-void printMenu();
-void zadanie1(), zadanie2(), zadanie3(), zadanie4(), zadanie5();
-bool validateInput(double, double, double);
+// -----------------------------
+// Console colors (bright only)
+// -----------------------------
+enum Color : int {
+    RESET   = 7,
+    CYAN    = 11,
+    GREEN   = 10,
+    YELLOW  = 14,
+    MAGENTA = 13,
+    WHITE   = 15,
+    RED     = 12
+};
+void setColor(Color c) {
+#ifdef _WIN32
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), c);
+#else
+    static const char* codes[] = {
+        "\033[0m",      // 0
+        /*1-6*/ "", "", "", "", "", "",
+        "\033[97m",     // 7 WHITE
+        "", "", "",
+        "\033[36m",     // 11 CYAN
+        "\033[32m",     // 12 GREEN
+        "\033[31m",     // 13 MAGENTA
+        "\033[33m",     // 14 YELLOW
+        "\033[37m"      // 15
+    };
+    std::cout << codes[c];
+#endif
+}
 
-// ASCII Art and UI functions
+// -----------------------------
+// Simple file-based logger
+// -----------------------------
+class Logger {
+public:
+    static Logger& instance() {
+        static Logger inst("program.log");
+        return inst;
+    }
+    void log(const std::string& level, const std::string& msg) {
+        auto t = std::time(nullptr);
+        auto tm = *std::localtime(&t);
+        std::ostringstream ts;
+        ts << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
+        logfile_ << ts.str() << " [" << level << "] " << msg << "\n";
+    }
+private:
+    std::ofstream logfile_;
+    Logger(const std::string& fname) : logfile_(fname, std::ios::app) {
+        if (!logfile_) throw std::runtime_error("Cannot open log file");
+    }
+    ~Logger() { logfile_.close(); }
+    Logger(const Logger&) = delete;
+    void operator=(const Logger&) = delete;
+};
+
+// -----------------------------
+// Student record + CSV manager
+// -----------------------------
+struct Student { int index; std::string first, last; };
+class StudentManager {
+    const std::string file_ = "students.csv";
+public:
+    std::vector<Student> load() {
+        std::vector<Student> v;
+        std::ifstream in(file_);
+        std::string line;
+        while (std::getline(in, line)) {
+            std::istringstream iss(line);
+            std::string tok;
+            Student s;
+            if (std::getline(iss, tok, ',')) {
+                try { s.index = std::stoi(tok); }
+                catch(...) { continue; }
+                if (std::getline(iss, s.first, ',') && std::getline(iss, s.last)) {
+                    v.push_back(s);
+                }
+            }
+        }
+        return v;
+    }
+    void save(const Student& s) {
+        std::ofstream out(file_, std::ios::app);
+        out << s.index << ',' << s.first << ',' << s.last << '\n';
+        out.flush();
+    }
+};
+
+// -----------------------------
+// Header & menu
+// -----------------------------
 void printHeader() {
-    setConsoleColor(14); // Yellow
-    cout << R"(
-    +--------------------------------+
-    |     Student Management System   |
-    +--------------------------------+
-    )" << endl;
-    
-    setConsoleColor(15); // Bright White
-    cout << "\nAuthor: Adrian Lesniak" << endl;
-    cout << "Program Description:" << endl;
-    cout << "This program provides various student-related tools including:" << endl;
-    cout << "- Student data management" << endl;
-    cout << "- Geometric calculations (trapezoid area)" << endl;
-    cout << "- Mathematical function evaluation" << endl;
-    cout << "- Random number generation" << endl;
-    cout << "- Temperature conversion utilities" << endl;
-    cout << "\n----------------------------------------" << endl;
-    setConsoleColor(7); // White
+    setColor(CYAN);
+    std::cout << R"(
+**********************************************
+*         STUDENT MANAGEMENT SYSTEM          *
+**********************************************
+)";
+    setColor(WHITE);
+    std::cout << " Author: Adrian Lesniak\n"
+                 " Manage student records & simple tools\n"
+                 "----------------------------------------\n";
 }
-
 void printMenu() {
-    cout << "\nAvailable tasks:\n";
-    setConsoleColor(11); // Light Cyan
-    cout << "1. Student Data Management\n";
-    cout << "2. Trapezoid Area Calculator\n";
-    cout << "3. Function Calculator\n";
-    cout << "4. Random Number Generator\n";
-    cout << "5. Temperature Converter\n";
-    setConsoleColor(7); // White
+    setColor(MAGENTA);
+    std::cout <<
+        "1) Manage Students\n"
+        "2) Trapezoid Area\n"
+        "3) Function Eval\n"
+        "4) Random Numbers\n"
+        "5) Temp Converter\n"
+        "0) Exit\n";
+    setColor(WHITE);
 }
 
-// Color handling
-void setConsoleColor(int color) {
-    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color);
+// -----------------------------
+// Validated numeric input
+// -----------------------------
+template<typename T>
+T getValidated(const std::string& prompt, T lo, T hi) {
+    T val;
+    while (true) {
+        std::cout << prompt;
+        if (std::cin >> val && val >= lo && val <= hi) {
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            return val;
+        }
+        std::cin.clear();
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        setColor(RED);
+        std::cout << "  ! Invalid input, try again.\n";
+        setColor(WHITE);
+        Logger::instance().log("ERROR","Invalid numeric input");
+    }
 }
 
-// Error logging
-void logError(const string& error) {
-    ofstream logFile("error_log.txt", ios::app);
-    time_t now = time(0);
-    string dateTime = ctime(&now);
-    logFile << dateTime.substr(0, dateTime.length()-1) << ": " << error << endl;
-    logFile.close();
-}
+// -----------------------------
+// Task 1: Student management
+// -----------------------------
+void task1_manageStudents() {
+    clearScreen(); printHeader();
+    setColor(YELLOW);
+    std::cout << "a) Add new student\n"
+                 "   Enter index, first & last name.\n"
+                 ;
+    setColor(WHITE);
+    std::cout << "b) List all students\n"
+                 "   Shows all saved records.\n";
+    setColor(WHITE);  // prompt in white
+    std::cout << "Choice [a/b]: ";
+    char c; std::cin >> c; std::cin.ignore(1,'\n');
 
-int main() {
-    SetConsoleTitle("Student Management System");
-    string koniec1;
-    int choice;
-    
-    while(true) {
-        system("cls");
-        printHeader();
-        printMenu();
-        
-        setConsoleColor(14);
-        cout << "\nEnter your choice (1-5) or 0 to exit: ";
-        setConsoleColor(7);
-        cin >> choice;
-        
-        switch(choice) {
-            case 0:
-                return 0;
-            case 1:
-                system("cls");
-                cout << "Task no.5.1 - Student data." << endl;
-                zadanie1();
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                break;
-            case 2:
-                system("cls");
-                cout << "Task no.5.2 - Trapezoid field." << endl;
-                zadanie2();
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                break;
-            case 3:
-                system("cls");
-                cout << "Task no.5.3 - Function." << endl;
-                zadanie3();
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                break;
-            case 4:
-                system("cls");
-                cout << "Task no.5.4 - Draw numbers from the range." << endl;
-                zadanie4();
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                break;
-            case 5:
-                system("cls");
-                cout << "Task no.5.5 - Temperature conversion." << endl;
-                zadanie5();
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                break;
-            default:
-                setConsoleColor(12);
-                cout << "\nInvalid choice! Press any key to try again...";
-                setConsoleColor(7);
-                _getch();
-                break;
+    StudentManager mgr;
+    if (c=='a'||c=='A') {
+        Student s;
+        s.index = getValidated<int>(" Index no (1-9999999): ",1,9999999);
+        std::cout<<" First name: "; std::getline(std::cin,s.first);
+        std::cout<<" Last  name: "; std::getline(std::cin,s.last);
+        mgr.save(s);
+        setColor(GREEN);
+        std::cout<<" -> Student saved!\n";
+        setColor(WHITE);
+        Logger::instance().log("INFO","Added student "+ std::to_string(s.index));
+    }
+    else {
+        setColor(YELLOW);
+        std::cout<<" Listing all students:\n\n";
+        setColor(WHITE);
+        auto v = mgr.load();
+        if (v.empty()) {
+            std::cout<<" (none found)\n";
+        } else {
+            std::cout<<"#   First      Last\n";
+            std::cout<<"--------------------------\n";
+            for (auto& s: v) {
+                std::cout<< std::setw(3)<<s.index<<"  "
+                         << std::setw(10)<<s.first<<"  "
+                         << s.last<<"\n";
+            }
         }
     }
+}
 
+// -----------------------------
+// Task 2: Trapezoid area
+// -----------------------------
+void task2_trapezoid() {
+    clearScreen(); printHeader();
+    setColor(YELLOW);
+    std::cout<<" Compute area of a trapezoid: (a+b)/2 * h\n";
+    setColor(WHITE);
+    double a = getValidated<double>(" Base a (>0): ",1e-6,1e6);
+    double b = getValidated<double>(" Base b (>0): ",1e-6,1e6);
+    double h = getValidated<double>(" Height h (>0): ",1e-6,1e6);
+    double area = (a+b)/2*h;
+    setColor(GREEN);
+    std::cout<<"\n Area = "<<std::fixed<<std::setprecision(2)<<area<<"\n";
+    setColor(WHITE);
+    Logger::instance().log("INFO","Trapezoid area="+std::to_string(area));
+}
+
+// -----------------------------
+// Task 3: Function evaluation
+// -----------------------------
+void task3_function() {
+    clearScreen(); printHeader();
+    setColor(YELLOW);
+    std::cout<<" Evaluate y = 2*x+1  if -1<=x<=20, else y=2/x\n";
+    setColor(WHITE);
+    double x = getValidated<double>(" x value: ",-1e6,1e6);
+    double y = (x>=-1 && x<=20) ? (2*x+1) : (2.0/x);
+    setColor(GREEN);
+    std::cout<<"\n y = "<<y<<"\n";
+    setColor(WHITE);
+    Logger::instance().log("INFO","Function y="+std::to_string(y));
+}
+
+// -----------------------------
+// Task 4: Random numbers
+// -----------------------------
+void task4_random() {
+    clearScreen(); printHeader();
+    setColor(YELLOW);
+    std::cout<<" Generate ten random numbers 1..10\n\n";
+    setColor(WHITE);
+    srand((unsigned)time(nullptr));
+    for (int i=0;i<10;i++) std::cout<<(rand()%10+1)<<" ";
+    std::cout<<"\n";
+    Logger::instance().log("INFO","Generated random numbers");
+}
+
+// -----------------------------
+// Task 5: Temperature converter
+// -----------------------------
+void task5_temp() {
+    clearScreen(); printHeader();
+    setColor(YELLOW);
+    std::cout<<" Convert temperature: C->F or F->C\n";
+    std::cout<<" 1) C->F    2) F->C\n";
+    setColor(WHITE);
+    int c = getValidated<int>(" Choice: ",1,2);
+    double t = getValidated<double>(" Temperature: ", -273.15,1e4);
+    double r = (c==1) ? (t*9.0/5.0+32.0) : ((t-32.0)*5.0/9.0);
+    setColor(GREEN);
+    std::cout<<"\n Result: "<<std::fixed<<std::setprecision(2)<<r<<"\n";
+    setColor(WHITE);
+    Logger::instance().log("INFO","Temp convert result="+std::to_string(r));
+}
+
+// -----------------------------
+// Main
+// -----------------------------
+int main(){
+    try {
+        while (true) {
+            clearScreen(); printHeader(); printMenu();
+            int choice = getValidated<int>("\n Your choice (0-5): ",0,5);
+            if (choice==0) break;
+            switch(choice) {
+                case 1: task1_manageStudents(); break;
+                case 2: task2_trapezoid();        break;
+                case 3: task3_function();         break;
+                case 4: task4_random();           break;
+                case 5: task5_temp();             break;
+            }
+            waitKey();
+        }
+    } catch(const std::exception& ex) {
+        setColor(RED);
+        std::cerr<<"Fatal: "<<ex.what()<<"\n";
+        setColor(WHITE);
+        Logger::instance().log("ERROR",ex.what());
+        return 1;
+    }
     return 0;
 }
-
-void zadanie1() {
-    setConsoleColor(11);
-    cout << "\n=== Student Data Entry ===\n";
-    setConsoleColor(7);
-    
-    string imie, nazwisko; // string data
-    int nr_indeksu;
-
-    cout << "\nEnter the name of the student: ";
-    cin >> imie;
-
-    cout << "Enter the surname of the student: ";
-    cin >> nazwisko;
-
-    cout << "Enter the student's index number: ";
-    cin >> nr_indeksu;
-
-    cout << "\nSUMMARY: " << endl;
-    cout << "Student's name: " << imie << endl;
-    cout << "Student's surname: " << nazwisko << endl;
-    cout << "Student index number: " << nr_indeksu << endl;
-
-    cout << endl;
-}
-
-void zadanie2() {
-    setConsoleColor(11);
-    cout << "\n=== Trapezoid Calculator ===\n";
-    setConsoleColor(7);
-    
-    float a, b, h;
-    try {
-        cout << "\nEnter the length of the base a: ";
-        cin >> a;
-        cout << "Enter the length of the base b: ";
-        cin >> b;
-        cout << "Enter the height of the trapezoid: ";
-        cin >> h;
-
-        if (!validateInput(a, b, h)) {
-            throw runtime_error("Invalid trapezoid dimensions");
-        }
-
-        double area = (a + b) / 2 * h;
-        setConsoleColor(10); // Light Green
-        cout << fixed << setprecision(2);
-        cout << "\nThe area of the trapezoid is: " << area << endl;
-        setConsoleColor(7);
-
-        // Save to file
-        ofstream outFile("calculations.txt", ios::app);
-        outFile << "Trapezoid area calculation: " << area << endl;
-        outFile.close();
-
-    } catch (const exception& e) {
-        logError(e.what());
-        setConsoleColor(12);
-        cout << "Error: " << e.what() << endl;
-        setConsoleColor(7);
-    }
-
-    cout << endl;
-}
-
-// Input validation
-bool validateInput(double a, double b, double h) {
-    return (a > 0 && b > 0 && h > 0);
-}
-
-void zadanie3() {
-    setConsoleColor(11);
-    cout << "\n=== Function Calculator ===\n";
-    setConsoleColor(7);
-    
-    double x = 0;
-
-    if (x>=-1 && x<=20) { // condition1
-        cout << "\nCalculate the value of the function y(x)=2*x+1\n";
-        cout << "---------------------------------------\n";
-        cout << "Enter the value of point x: ";
-        cin >> x;
-        cout << "Function value y(x)=2*x+1 for a point " << x << " is: " << (2 * x) + 1 <<endl;
-    }
-
-    if (x<-1 || x>20) { // condition2
-        cout << "\nCalculate the value of the function y(x)=2/x\n";
-        cout << "---------------------------------------\n";
-        cout << "Enter the value of point x: ";
-        cin >> x;
-        cout << "Function value y(x)=2/x for a point " << x << " is: " << 2/x <<endl;
-    }
-
-    cout << endl;
-}
-
-void zadanie4() {
-    setConsoleColor(11);
-    cout << "\n=== Random Number Generator ===\n";
-    setConsoleColor(7);
-    
-    int p=1,k=10;
-    int wylosowana_liczba;
-
-    for (int i = p; i <= k; i++) {
-        wylosowana_liczba = rand() % (k - p + 1) + p;
-        cout << wylosowana_liczba << endl;
-    }
-
-    cout << endl;
-}
-
-void zadanie5() {
-    setConsoleColor(11);
-    cout << "\n=== Temperature Converter ===\n";
-    setConsoleColor(7);
-    
-    int wybor;
-    string zmienna_sterujaca;
-
-    cout<<"\nChoose what you want to convert."<<endl;
-    cout<<"1.Celsius to Fahrenheit."<<endl;
-    cout<<"2.Fahrenheit to Celsius"<<endl;
-    cout<<"\nYour choice(enter number 1 or 2): ";
-    cin>>wybor;
-
-    switch(wybor) {
-        case 1:
-            float Tc;
-            float Tf;
-
-            cout<<"\nEnter the temperature in degrees Celsius: ";
-            cin>>Tc;
-
-            cout<<"The temperature in degrees Fahrenheit is: "<< (Tc * 9/5) + 32 <<endl;
-            break;
-
-        case 2:
-            cout<<"\nEnter the temperature in degrees Fahrenheit: ";
-            cin>>Tf;
-
-            cout<<"The temperature in degrees Celsius is: "<< (Tf - 32) * 5/9 <<endl;
-            break;
-
-        default:
-            cout<<"The entered data is incorrect. \n"<<endl;
-            break;
-    }
-
-    cout << endl;
-}
-
