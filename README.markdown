@@ -22,6 +22,8 @@ _A C++ console application offering a suite of tools for student data entry, geo
 
 **Student & Utility Toolkit Pro**, developed by Adrian Lesniak, is a versatile C++ console application that provides a collection of useful tools through a clear, menu-driven interface. It includes functionalities for: basic student data entry and display; calculating the area of a trapezoid with input validation; evaluating a piecewise mathematical function; generating a series of random numbers; and converting temperatures between Celsius and Fahrenheit. The program enhances user experience with a colorful console output (Windows-specific), logs operational errors to `error_log.txt`, and saves results from the trapezoid area calculator to `calculations.txt`.
 
+![Demo GIF](screenshots/1.gif)
+
 ## ✨ Key Features & Tools
 
 The application offers a suite of distinct tools accessible via a main menu:
@@ -58,9 +60,20 @@ The application offers a suite of distinct tools accessible via a main menu:
 
 ## 🖼️ Screenshots
 
-**Coming soon!**
+_Screenshots showcasing the main menu with ASCII logo, inputs and outputs for each of the five tools, and examples from `error_log.txt` and `calculations.txt`._
 
-_This section will be updated with screenshots showcasing the main menu with ASCII logo, inputs and outputs for each of the five tools, and examples from `error_log.txt` and `calculations.txt`._
+<p align="center">
+  <img src="screenshots\1.jpg" width="300"/>
+  <img src="screenshots\2.jpg" width="300"/>
+  <img src="screenshots\3.jpg" width="300"/>
+  <img src="screenshots\4.jpg" width="300"/>
+  <img src="screenshots\5.jpg" width="300"/>
+  <img src="screenshots\6.jpg" width="300"/>
+  <img src="screenshots\7.jpg" width="300"/>
+  <img src="screenshots\8.jpg" width="300"/>
+  <img src="screenshots\9.jpg" width="300"/>
+</p>
+
 
 ## ⚙️ System Requirements
 
